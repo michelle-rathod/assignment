@@ -52,7 +52,7 @@
                     <!-- Dropdown for selecting the scanner source -->
                     <div class="form-group">
                         <label for="source-select">Select Source</label>
-                        <select id="source-select" class="form-control">
+                        <select id="source-select" class="form-control" onchange="source_onchange()">
                             <option value="twain2-freeimage">TWAIN2 FreeImage Software Scanner</option>
                         </select>
                     </div>
@@ -128,28 +128,72 @@
 
         // Function to acquire an image from the scanner
         function AcquireImage() {
-            if (DWObject) {
-                DWObject.SelectSourceAsync().then(function () {
-                    return DWObject.AcquireImageAsync({
+            return new Promise((resolve, reject) => {
+                if (DWObject) {
+                    const pixelType = document.querySelector('input[name="pixel-type"]:checked').value;
+                    const options = {
+                        IfShowUI: document.getElementById('ShowUI').checked,
+                        IfFeederEnabled: document.getElementById('ADF').checked,
+                        Resolution: document.getElementById('resolution-select').value,
+                        PixelType: pixelType,
                         IfCloseSourceAfterAcquire: true // Close the scanner source automatically after scanning
-                    });
-                }).catch(function (exp) {
-                    alert(exp.message); // Alert if there's an error during the acquisition process
-                });
+                    };
+
+                    DWObject.AcquireImageAsync(options)
+                        .then(() => {
+                            // Ensure conversion functions are used if needed
+                            if (pixelType == "1") {
+                                ConvertToBW(); // Convert to Black & White if selected
+                            } else if (pixelType == "2") {
+                                ConvertToGrayScale(); // Convert to Gray scale if selected
+                            }
+                            resolve(); // Resolve the promise after image acquisition
+                        })
+                        .catch(exp => {
+                            reject(exp); // Reject the promise if an error occurs
+                        });
+                } else {
+                    reject(new Error('Dynamic Web TWAIN object is not initialized.'));
+                }
+            });
+        }
+
+        // Function to handle source change
+        function source_onchange() {
+            if (document.getElementById("divTwainType"))
+                document.getElementById("divTwainType").style.display = "";
+
+            if (document.getElementById("source-select")) {
+                var cIndex = document.getElementById("source-select").selectedIndex;
+
+                // Check if the environment is not Windows
+                if (!Dynamsoft.Lib.env.bWin) {
+                    if (document.getElementById("lblShowUI"))
+                        document.getElementById("lblShowUI").style.display = "none";
+                    if (document.getElementById("ShowUI"))
+                        document.getElementById("ShowUI").style.display = "none";
+                } else {
+                    // For Windows environments
+                    DWObject.SelectDeviceAsync(deviceList[cIndex]);
+
+                    var showUI = document.getElementById("ShowUI");
+                    if (showUI) {
+                        // If the selected device's display name starts with "WIA-", disable the UI checkbox
+                        if (deviceList[cIndex] && deviceList[cIndex].displayName && deviceList[cIndex].displayName.indexOf("WIA-") == 0) {
+                            showUI.disabled = true;
+                            showUI.checked = false;
+                        } else {
+                            showUI.disabled = false;
+                        }
+                    }
+                }
             }
         }
 
         // Function to acquire images and save them as a single PDF
         function AcquireAndSaveAsPDF() {
             if (DWObject) {
-                // Directly acquire the image and handle the source selection
-                DWObject.AcquireImageAsync({
-                    IfShowUI: document.getElementById('ShowUI').checked,
-                    IfFeederEnabled: document.getElementById('ADF').checked,
-                    Resolution: document.getElementById('resolution-select').value,
-                    PixelType: document.querySelector('input[name="pixel-type"]:checked').value,
-                    IfCloseSourceAfterAcquire: true // Close the scanner source automatically after scanning
-                }).then(function () {
+                AcquireImage().then(() => {
                     if (DWObject.HowManyImagesInBuffer > 0) {
                         DWObject.IfShowFileDialog = true; // Show file dialog to save PDF
                         DWObject.SaveAllAsPDF("DynamicWebTWAIN.pdf", function () {
@@ -160,7 +204,7 @@
                     } else {
                         alert('No images to save.'); // Alert if no images were scanned
                     }
-                }).catch(function (exp) {
+                }).catch(exp => {
                     alert(exp.message); // Alert if there's an error during acquisition
                 });
             }
@@ -169,14 +213,7 @@
         // Function to acquire images and save each one as a separate PDF
         function AcquireAndSaveEachAsPDF() {
             if (DWObject) {
-                // Directly acquire the image and handle the source selection
-                DWObject.AcquireImageAsync({
-                    IfShowUI: document.getElementById('ShowUI').checked,
-                    IfFeederEnabled: document.getElementById('ADF').checked,
-                    Resolution: document.getElementById('resolution-select').value,
-                    PixelType: document.querySelector('input[name="pixel-type"]:checked').value,
-                    IfCloseSourceAfterAcquire: true // Close the scanner source automatically after scanning
-                }).then(function () {
+                AcquireImage().then(() => {
                     const imageCount = DWObject.HowManyImagesInBuffer; // Get the number of images in the buffer
                     if (imageCount > 0) {
                         DWObject.IfShowFileDialog = true; // Show file dialog to save PDF
@@ -197,7 +234,7 @@
                     } else {
                         alert('No images to save.'); // Alert if no images were scanned
                     }
-                }).catch(function (exp) {
+                }).catch(exp => {
                     alert(exp.message); // Alert if there's an error during acquisition
                 });
             }
@@ -215,20 +252,22 @@
 
         // Convert the current image to Black & White
         function ConvertToBW() {
-            DWObject.ConvertToBW(DWObject.CurrentImageIndexInBuffer);
+            if (DWObject.CurrentImageIndexInBuffer !== undefined) {
+                DWObject.ConvertToBW(DWObject.CurrentImageIndexInBuffer);
+            }
         }
 
         // Convert the current image to Gray scale
         function ConvertToGrayScale() {
-            DWObject.ConvertToGrayScale(DWObject.CurrentImageIndexInBuffer);
+            if (DWObject.CurrentImageIndexInBuffer !== undefined) {
+                DWObject.ConvertToGrayScale(DWObject.CurrentImageIndexInBuffer);
+            }
         }
 
         // Remove all images from the buffer
         function btnRemoveAllImages_onclick() {
             if (DWObject) {
                 DWObject.RemoveAllImages();
-                document.getElementById('DW_TotalImage').value = "0"; // Reset total image count
-                document.getElementById('DW_CurrentImage').value = "0"; // Reset current image index
             }
         }
 
@@ -250,23 +289,8 @@
                 }
             }
         }
-
-        // Add event listeners for radio buttons to change pixel type
-        document.addEventListener('DOMContentLoaded', function () {
-            document.getElementById('pixel-bw').addEventListener('change', function () {
-                if (this.checked) {
-                    ConvertToBW(); // Convert to Black & White if radio button is checked
-                }
-            });
-
-            document.getElementById('pixel-gray').addEventListener('change', function () {
-                if (this.checked) {
-                    ConvertToGrayScale(); // Convert to Gray scale if radio button is checked
-                }
-            });
-        });
-
     </script>
 </body>
 
 </html>
+
